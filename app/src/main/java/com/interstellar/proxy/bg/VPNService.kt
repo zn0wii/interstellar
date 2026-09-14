@@ -248,18 +248,21 @@ class VPNService :
             }
         }
 
-        if (spec.perAppEnabled) {
-            val selfPackage = packageName
-            try {
-                if (spec.perAppInclude) {
-                    (spec.perAppPackages + selfPackage).forEach { builder.addAllowedApplication(it) }
-                } else {
-                    (spec.perAppPackages - selfPackage).forEach { builder.addDisallowedApplication(it) }
-                }
-            } catch (e: NameNotFoundException) {
-                Log.e(TAG, "per-app vpn config failed", e)
+        // The sidecar core (mihomo / xray) runs proxy-only in a child process
+        // that cannot call VpnService.protect() — if the app's own uid stays
+        // inside the VPN, every core dial to a non-excluded address loops
+        // back into the tun (hev → core → tun → …). DIRECT mode dials
+        // arbitrary destinations, so node-IP exclusions alone can't prevent
+        // that: the app itself must stay OUT of its own VPN.
+        runCatching {
+            if (spec.perAppEnabled && spec.perAppInclude) {
+                // allow-list mode: self is simply not listed → outside the VPN
+                spec.perAppPackages.forEach { builder.addAllowedApplication(it) }
+            } else {
+                spec.perAppPackages.forEach { builder.addDisallowedApplication(it) }
+                builder.addDisallowedApplication(packageName)
             }
-        }
+        }.onFailure { Log.e(TAG, "per-app vpn config failed", it) }
 
         val pfd = builder.establish() ?: return null
         service.fileDescriptor = pfd

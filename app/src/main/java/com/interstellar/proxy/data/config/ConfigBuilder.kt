@@ -116,8 +116,12 @@ object ConfigBuilder {
                     put("type", "tun")
                     put("tag", "tun-in")
                     putJsonArray("address") {
+                        // v4-only TUN: the underlying network often has no IPv6
+                        // exit, and a v6 tun address makes apps dial AAAA targets
+                        // that the direct outbound can never reach — every such
+                        // connection dies with ERR_CONNECTION_RESET. Matches the
+                        // mihomo sidecar VPN and CMFA's default (allowIpv6=false).
                         add("172.19.0.1/30")
-                        add("fdfe:dcba:9876::1/126")
                     }
                     put("mtu", 9000)
                     put("auto_route", true)
@@ -127,7 +131,6 @@ object ConfigBuilder {
                             add("10.0.0.0/8")
                             add("172.16.0.0/12")
                             add("192.168.0.0/16")
-                            add("fc00::/7")
                         }
                     }
                 },
@@ -529,7 +532,10 @@ object ConfigBuilder {
                     put("tag", "dns-remote")
                     put("type", "https")
                     put("server", "1.1.1.1")
-                    put("detour", if (options.mode == OutboundMode.DIRECT) DIRECT_TAG else GROUP_TAG)
+                    // sing-box 1.12+ rejects detour→empty direct outbound with a
+                    // fatal error; in DIRECT mode an omitted detour already dials
+                    // straight out the system interface
+                    if (options.mode != OutboundMode.DIRECT) put("detour", GROUP_TAG)
                 },
             )
             // user-injected domain→IP mappings (hosts semantics)
@@ -588,7 +594,16 @@ object ConfigBuilder {
                 )
             }
         }
-        put("final", if (options.mode == OutboundMode.GLOBAL) "dns-remote" else "dns-remote")
+        // DIRECT mode dials dns-remote (1.1.1.1 DoH) without a detour, which is
+        // unreachable in CN — resolve via CN DNS instead, mirroring mihomo's
+        // DIRECT-mode nameserver (223.5.5.5)
+        put(
+            "final",
+            when (options.mode) {
+                OutboundMode.DIRECT -> "dns-cn"
+                else -> "dns-remote"
+            },
+        )
         put("strategy", "prefer_ipv4")
         put("independent_cache", true)
     }

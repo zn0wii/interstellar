@@ -89,11 +89,27 @@ class ServiceNotification(private val status: MutableLiveData<Status>, private v
                 ),
             )
         }
-        service.startForeground(
+        // On API 34+ the type must be passed explicitly (the 2-arg overload
+        // leaves the service type-less — Android 16 then tears the FGS down
+        // shortly after start, silently stopping the core)
+        val fgsType =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                runCatching {
+                    service.packageManager.getServiceInfo(
+                        android.content.ComponentName(service, service.javaClass),
+                        0,
+                    ).foregroundServiceType
+                }.getOrDefault(0)
+            } else {
+                0
+            }
+        ServiceCompat.startForeground(
+            service,
             notificationId,
             notificationBuilder
                 .setContentTitle(profileName.takeIf { it.isNotBlank() } ?: service.getString(R.string.app_tagline))
                 .setContentText(service.getString(contentTextId)).build(),
+            fgsType,
         )
     }
 

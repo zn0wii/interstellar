@@ -121,7 +121,10 @@ object XrayConfigBuilder {
                     if (useBalancer) freedomOutbound() else nodeOutbound(usable[selectedIndex], PROXY_TAG),
                 )
                 nodeOutbounds.forEach(outbounds::put)
-                outbounds.put(freedomOutbound())
+                // with a balancer the first slot is already the freedom
+                // outbound tagged "direct" — a second one collides and Xray
+                // aborts with "existing tag found: direct"
+                if (!useBalancer) outbounds.put(freedomOutbound())
                 outbounds.put(blockOutbound())
                 buildRules(usable, tags, options, useBalancer).forEach(rules::put)
             }
